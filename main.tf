@@ -93,6 +93,13 @@ resource "aws_db_subnet_group" "default" {
 
 resource "aws_eip" "nat" {
   domain = "vpc"
+  tags = merge(
+    var.common_tags,
+    var.nat_gateway_tags,
+    {
+        Name = local.resource_name
+    }
+  )  
 }
 
 resource "aws_nat_gateway" "main" {
@@ -111,3 +118,83 @@ resource "aws_nat_gateway" "main" {
   # on the Internet Gateway for the VPC.
   depends_on = [aws_internet_gateway.main]
 }
+
+# Public route table
+
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.main.id
+  tags =merge(
+    var.common_tags,
+    var.public_route_table_tags,
+    {
+      Name = "${local.resource_name}-public" # expense-dev-public
+    }
+  )
+}
+
+# Private route table
+
+resource "aws_route_table" "private" {
+  vpc_id = aws_vpc.main.id
+  tags =merge(
+    var.common_tags,
+    var.private_route_table_tags,
+    {
+      Name = "${local.resource_name}-private" # expense-dev-private
+    }
+  )
+}
+
+#  route table
+
+resource "aws_route_table" "database" {
+  vpc_id = aws_vpc.main.id
+  tags =merge(
+    var.common_tags,
+    var.database_route_table_tags,
+    {
+      Name = "${local.resource_name}-database" # expense-dev-database
+    }
+  )
+}
+# Routes
+resource "aws_route" "public" {
+  route_table_id            = aws_route_table.public.id
+  destination_cidr_block    = "0.0.0.0/0"
+  gateway_id = aws_internet_gateway.main.id
+}
+
+#Private route
+resource "aws_route" "private" {
+  route_table_id            = aws_route_table.private.id
+  destination_cidr_block    = "0.0.0.0/0"
+  gateway_id = aws_nat_gateway.main.id
+}
+
+#Database route
+resource "aws_route" "database" {
+  route_table_id            = aws_route_table.database.id
+  destination_cidr_block    = "0.0.0.0/0"
+  gateway_id = aws_nat_gateway.main.id
+}
+
+# Association between a route table and public subnet 
+resource "aws_route_table_association" "a" {
+  count =  length(var.public_subnet_cidrs)
+  subnet_id      = aws_subnet.public[count.index].id
+  route_table_id = aws_route_table.public.id
+}
+# Association between a route table and private subnet 
+resource "aws_route_table_association" "b" {
+  count = length(var.private_subnet_cidrs)
+  subnet_id      = aws_subnet.private[count.index].id
+  route_table_id = aws_route_table.private.id
+}
+
+# Association between a route table and database subnet 
+resource "aws_route_table_association" "c" {
+  count = length(var.database_subnet_cidrs)
+  subnet_id      = aws_subnet.database[count.index].id
+  route_table_id = aws_route_table.database.id
+}
+
